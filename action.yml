@@ -285,28 +285,16 @@ runs:
         fi
         echo "recipe_path=${RECIPE_PATH}" >> "${GITHUB_OUTPUT}"
 
+    - uses: dtolnay/rust-toolchain@stable
+
     - name: Install BlueBuild
       shell: bash
-      env:
-        CLI_VERSION_TAG: ${{ steps.build_vars.outputs.cli_version }}
-        REPO_TAG: ${{ steps.build_vars.outputs.repo_tag }}
-        VERIFY_FLAG: ${{ steps.build_vars.outputs.verify_flag }}
-        VERIFY_INSTALL: ${{ inputs.verify_install }}
       run: |
-        set -euo pipefail
-        CLI_INSTALLER_IMAGE="ghcr.io/blue-build/cli:${CLI_VERSION_TAG}-installer"
-        if [ "$VERIFY_INSTALL" = "true" ]; then
-          docker pull "${CLI_INSTALLER_IMAGE}"
-          CLI_INSTALLER_IMAGE=$(docker inspect --format='{{index .RepoDigests 0}}' "${CLI_INSTALLER_IMAGE}")
-          slsa-verifier verify-image "${CLI_INSTALLER_IMAGE}" \
-              --source-uri github.com/blue-build/cli \
-              "${VERIFY_FLAG}" "${REPO_TAG}"
-        fi
-        sudo docker create \
-          --name blue-build-installer \
-          "${CLI_INSTALLER_IMAGE}"
-        sudo docker cp blue-build-installer:/out/bluebuild /usr/bin/bluebuild
-        sudo docker rm blue-build-installer
+        git clone --depth=1 https://github.com/HastD/blue-build-cli.git -b prune
+        cd blue-build-cli
+        cargo build --release
+        sudo install -m 755 target/release/bluebuild /usr/bin/bluebuild
+        cd -
         bluebuild --version
 
     # blue-build/cli does the heavy lifting
@@ -327,6 +315,7 @@ runs:
         BB_SQUASH: ${{ inputs.squash }}
         BB_BUILD_CHUNKED_OCI: ${{ inputs.build_chunked_oci }}
         BB_BUILD_CHUNKED_OCI_MAX_LAYERS: ${{ inputs.max_layers }}
+        BB_BUILD_REMOVE_BASE_IMAGE: "true"
         BB_RECHUNK: ${{ inputs.rechunk }}
         BB_BUILD_RECHUNK_CLEAR_PLAN: ${{ inputs.rechunk_clear_plan }}
         RECIPE_PATH: ${{ steps.build_vars.outputs.recipe_path }}
@@ -341,6 +330,7 @@ runs:
 
         if [ "${BB_BUILD_CHUNKED_OCI}" = "false" ]; then
           unset BB_BUILD_CHUNKED_OCI_MAX_LAYERS
+          unset BB_BUILD_REMOVE_BASE_IMAGE
         fi
 
         RUN_SUDO=""
@@ -354,7 +344,7 @@ runs:
         fi
 
         if [ -n "$RUN_SUDO" ]; then
-          sudo -E bluebuild build -v "${BUILD_OPTS[@]}" "${RECIPE_PATH}"
+          sudo -E bluebuild build -vv "${BUILD_OPTS[@]}" "${RECIPE_PATH}"
         else
-          bluebuild build -v "${BUILD_OPTS[@]}" "${RECIPE_PATH}"
+          bluebuild build -vv "${BUILD_OPTS[@]}" "${RECIPE_PATH}"
         fi
